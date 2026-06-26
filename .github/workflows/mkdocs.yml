@@ -1,11 +1,6 @@
 name: MkDocs Deploy
 on:
-  push:
-    branches: 
-      - master
-    paths:
-      - docs/*
-      - .github/workflows/mkdocs.yml
+  workflow_dispatch:
 
 jobs:
   build-and-deploy-gh-pages:
@@ -13,7 +8,7 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -21,7 +16,7 @@ jobs:
 
       - name: Install Mkdocs and Material theme
         run: pip install mkdocs mkdocs-material
-      
+
       - name: Get MkDocs version
         run: |
           mkdocs=$(mkdocs --version | awk '{print $3}')
