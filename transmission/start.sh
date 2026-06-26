@@ -99,10 +99,34 @@ else
   LOGFILE=${TRANSMISSION_HOME}/transmission.log
 fi
 
-echo "STARTING TRANSMISSION"
+# Raise the open-files limit (RLIMIT_NOFILE) for transmission-daemon.
+# transmission keeps one fd per peer (peer-limit-global, default 240) plus data,
+# resume and log files; the default 1024 soft limit causes intermittent
+# "Unable to save resume file: Too many open files" errors. The `su` below resets
+# the soft limit back to 1024 even when the hard limit is large, so the limit MUST
+# be raised inside the su shell.
+if [[ -z "${OPEN_FILES_LIMIT}" ]]; then
+  # Default to the hard limit, which the unprivileged RUN_AS user can reach without
+  # extra privileges. It may be reported as "unlimited", but transmission can't use
+  # an infinite nofile - the kernel caps it at fs.nr_open - so fall back to that.
+  OPEN_FILES_LIMIT="$(ulimit -Hn)"
+  if [[ "${OPEN_FILES_LIMIT}" == "unlimited" ]]; then
+    OPEN_FILES_LIMIT="$(cat /proc/sys/fs/nr_open 2>/dev/null || echo 1048576)"
+  fi
+fi
+echo "Setting transmission open-files (nofile) soft limit to ${OPEN_FILES_LIMIT}"
 
-exec su --preserve-environment ${RUN_AS} -s /bin/bash -c "/usr/bin/transmission-daemon ${TRANSMISSION_LOGGING} -g ${TRANSMISSION_HOME} --logfile $LOGFILE" &
+# Build the transmission-daemon command as an array. It is run as RUN_AS via su,
+# which resets the nofile soft limit, so we raise it again inside the su shell.
+# ${transmission_cmd[*]@Q} safely quotes each argument for the `bash -c` string.
+transmission_cmd=("/usr/bin/transmission-daemon")
+[[ -n "${TRANSMISSION_LOGGING}" ]] && transmission_cmd+=("${TRANSMISSION_LOGGING}")
+transmission_cmd+=("-g" "${TRANSMISSION_HOME}" "--logfile" "${LOGFILE}")
 
+echo "STARTING TRANSMISSION" "command line:" "${transmission_cmd[*]@Q}"
+
+exec su --preserve-environment "${RUN_AS}" -s /bin/bash \
+  -c "ulimit -n ${OPEN_FILES_LIMIT}; exec ${transmission_cmd[*]@Q}" &
 
 # Configure port forwarding if applicable
 if [[ -f /etc/openvpn/${OPENVPN_PROVIDER,,}/update-port.sh && (-z $DISABLE_PORT_UPDATER || "false" = "$DISABLE_PORT_UPDATER") ]]; then
